@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+
+# Build artifacts
+/cursor-stat
+/cursor-stat.exe
+*.test
+
+# Go coverage / profiling
+coverage.out
+*.cover
+*.coverprofile
+*.prof
+
+# Local cache / SQLite (if CURSOR_STAT_HOME points into the repo)
+.cursor-stat/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Editor / local IDE config
+.cursor/
+.claude/
+.opencode/
+
+# Temp / scratch
+.tmp_*
+.tmp-*
+*.tmp
+/tmp-*
+.*-test-*.md
+.*-tune-*.md
+.*-tune.md
