@@ -28,6 +28,7 @@ coverage.out
 .cursor/
 .claude/
 .opencode/
+.junie/
 
 # Temp / scratch
 .tmp_*
