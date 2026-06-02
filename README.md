@@ -91,4 +91,4 @@ Cursor files (state.vscdb, transcripts, hooks)
 
 ## License
 
-TBD.
+[MIT](LICENSE)
