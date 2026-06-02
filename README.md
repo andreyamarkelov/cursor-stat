@@ -44,7 +44,10 @@ go test ./...
 |---------|-------------|
 | *(default)* | Full-screen TUI with tabs 1–5 |
 | `--once` | One-shot JSON snapshot (no cache required) |
+| `--no-tui` | One-shot JSON snapshot; useful for scripts/CI |
+| `--timeout 30s` | Maximum collection time for `--once` / default startup path |
 | `ingest` | Idempotent backfill into `stats.db` |
+| `ingest --timeout 120s` | Run ingest with a custom timeout |
 | `doctor` | Path, DB, cache, and hook checks |
 | `export` | CSV or JSON rollups (`--format`, `--days`, `-o`) |
 | `hooks install` | Append marker hook to `~/.cursor/hooks.json` |

@@ -3,6 +3,7 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cursor-stat/cursor-stat/internal/hooks"
@@ -66,7 +67,19 @@ func Run() ([]Check, error) {
 		defer db.Close()
 		n, _ := db.ComposerCount()
 		last, _ := db.LastIngestTime()
+
+		// New: check stats.db size
+		var dbSize int64
+		if p, err := paths.StatDataDir(); err == nil {
+			if st, err := os.Stat(filepath.Join(p, "stats.db")); err == nil {
+				dbSize = st.Size()
+			}
+		}
+
 		detail := fmt.Sprintf("%d composers cached", n)
+		if dbSize > 0 {
+			detail += fmt.Sprintf(" (%s)", formatSize(dbSize))
+		}
 		if !last.IsZero() {
 			detail += ", last ingest " + last.Format(time.RFC3339)
 		} else {
@@ -79,6 +92,17 @@ func Run() ([]Check, error) {
 		out = append(out, Check{Name: "stats_db", Status: status, Detail: detail})
 	}
 
+	projects, err := paths.ProjectsDir()
+	if err != nil {
+		out = append(out, Check{Name: "projects_dir", Status: "FAIL", Detail: err.Error()})
+	} else if st, err := os.Stat(projects); err != nil {
+		out = append(out, Check{Name: "projects_dir", Status: "WARN", Detail: "not found"})
+	} else if !st.IsDir() {
+		out = append(out, Check{Name: "projects_dir", Status: "WARN", Detail: "not a directory"})
+	} else {
+		out = append(out, Check{Name: "projects_dir", Status: "OK", Detail: projects})
+	}
+
 	if hooks.Installed() {
 		out = append(out, Check{Name: "live_hooks", Status: "OK", Detail: "cursor-stat hook registered"})
 	} else {
@@ -86,4 +110,17 @@ func Run() ([]Check, error) {
 	}
 
 	return out, nil
+}
+
+func formatSize(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }

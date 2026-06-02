@@ -39,10 +39,11 @@ type LiveSnapshot struct {
 	LastModelManual   bool      `json:"last_model_manual,omitempty"`
 }
 
-// StorageSummary reports on-disk sizes for Cursor data dirs.
+// StorageSummary reports on-disk sizes for Cursor data dirs and our cache.
 type StorageSummary struct {
 	GlobalStateDB   *StoreFile `json:"global_state_db,omitempty"`
 	ProjectsDir     *DirStat   `json:"projects_dir,omitempty"`
+	StatsDB         *StoreFile `json:"stats_db,omitempty"`
 	WorkspaceCount  int        `json:"workspace_count"`
 	TranscriptFiles int        `json:"transcript_files"`
 }

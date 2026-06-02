@@ -108,6 +108,29 @@ type DailyRollup struct {
     ToolCalls       int
     ToolFailures    int
 }
+
+// StorageSummary — on-disk sizes for Cursor data and our cache.
+type StorageSummary struct {
+    GlobalStateDB   *StoreFile
+    ProjectsDir     *DirStat
+    StatsDB         *StoreFile
+    WorkspaceCount  int
+    TranscriptFiles int
+}
+
+// StoreFile — one SQLite database file info.
+type StoreFile struct {
+    Path      string
+    SizeBytes int64
+    Readable  bool
+}
+
+// DirStat — directory size summary.
+type DirStat struct {
+    Path      string
+    SizeBytes int64
+    Exists    bool
+}
 ```
 
 ---

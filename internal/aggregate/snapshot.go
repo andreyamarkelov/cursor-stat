@@ -3,6 +3,7 @@ package aggregate
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -81,6 +82,15 @@ func Snapshot(ctx context.Context, opts ...SnapshotOptions) (cursor.Snapshot, er
 		out.Storage.ProjectsDir = cursorDirStat(projectsDir, st, true)
 	} else if os.IsNotExist(err) {
 		out.Storage.ProjectsDir = cursorDirStat(projectsDir, 0, false)
+	}
+
+	if statDir, err := paths.StatDataDir(); err == nil {
+		statsDB := filepath.Join(statDir, "stats.db")
+		if info, err := store.StatFile(statsDB); err == nil {
+			out.Storage.StatsDB = cursorStoreFile(info, true)
+		} else if os.IsNotExist(err) {
+			out.Storage.StatsDB = cursorStoreFile(&store.FileInfo{Path: statsDB}, false)
+		}
 	}
 
 	if opt.SkipToolScan {

@@ -23,14 +23,15 @@ A hands-on course that walks through **the real code in this repository**, mostl
 9. [Lesson 5 — the transcripts parser](#9-lesson-5--the-transcripts-parser)
 10. [Lesson 6 — the cache store (`stats.db`)](#10-lesson-6--the-cache-store-statsdb)
 11. [Lesson 7 — the ingest pipeline](#11-lesson-7--the-ingest-pipeline)
-12. [Lesson 8 — hooks and model tracking](#12-lesson-8--hooks-and-model-tracking)
-13. [Lesson 9 — the live ring buffer and watcher](#13-lesson-9--the-live-ring-buffer-and-watcher)
-14. [Lesson 10 — `aggregate.Dashboard`](#14-lesson-10--aggregatedashboard)
-15. [Lesson 11 — the Bubble Tea TUI](#15-lesson-11--the-bubble-tea-tui)
-16. [Concurrency model in one page](#16-concurrency-model-in-one-page)
-17. [Testing patterns](#17-testing-patterns)
-18. [Glossary](#18-glossary)
-19. [Exercises](#19-exercises)
+12. [Lesson 8 — the `doctor` command](#12-lesson-8--the-doctor-command)
+13. [Lesson 9 — hooks and model tracking](#13-lesson-9--hooks-and-model-tracking)
+14. [Lesson 10 — the live ring buffer and watcher](#14-lesson-10--the-live-ring-buffer-and-watcher)
+15. [Lesson 11 — `aggregate.Dashboard`](#15-lesson-11--aggregatedashboard)
+16. [Lesson 12 — the Bubble Tea TUI](#16-lesson-12--the-bubble-tea-tui)
+17. [Concurrency model in one page](#17-concurrency-model-in-one-page)
+18. [Testing patterns](#18-testing-patterns)
+19. [Glossary](#19-glossary)
+20. [Exercises](#20-exercises)
 
 ---
 
@@ -108,11 +109,11 @@ internal/
   aggregate/
     snapshot.go                one-shot read of Cursor files (for --once)
     dashboard.go               merge cache + live into one Dashboard
-  doctor/doctor.go             health checks
+  doctor/doctor.go             health checks (diagnostics)
   export/export.go             CSV / JSON export
 ```
 
-**Suggested order:** `main.go` → `paths.go` → `types.go` → `store/db.go` → `ingest.go` → the collectors (`globaldb`, `transcripts`) → `hooks` → `live` → `aggregate/dashboard.go` → `tui/model.go`. That's exactly the order of the lessons below.
+**Suggested order:** `main.go` → `paths.go` → `types.go` → `store/db.go` → `ingest.go` → `doctor/doctor.go` → the collectors (`globaldb`, `transcripts`) → `hooks` → `live` → `aggregate/dashboard.go` → `tui/model.go`. That's exactly the order of the lessons below.
 
 ---
 
@@ -307,25 +308,25 @@ The remaining functions (`runIngest`, `runDoctor`, `runExport`, `runHooks`, `pri
 File: `internal/paths/paths.go`. This is the easiest package — pure string building, no I/O except checking the home directory. Great for confidence.
 
 ```go
-10| func CursorUserData() (string, error) {
-11|     if override := os.Getenv("CURSOR_USER_DATA"); override != "" {
-12|         return override, nil
-13|     }
-14|     home, err := os.UserHomeDir()
-15|     if err != nil {
-16|         return "", fmt.Errorf("home dir: %w", err)
-17|     }
-18|     switch runtime.GOOS {
-19|     case "darwin":
-20|         return filepath.Join(home, "Library", "Application Support", "Cursor", "User"), nil
-21|     case "linux":
-22|         return filepath.Join(home, ".config", "Cursor", "User"), nil
-23|     case "windows":
-24|         return filepath.Join(home, "AppData", "Roaming", "Cursor", "User"), nil
-25|     default:
-26|         return "", fmt.Errorf("unsupported GOOS %q", runtime.GOOS)
-27|     }
-28| }
+11| func CursorUserData() (string, error) {
+12|     if override := os.Getenv("CURSOR_USER_DATA"); override != "" {
+13|         return override, nil
+14|     }
+15|     home, err := os.UserHomeDir()
+16|     if err != nil {
+17|         return "", fmt.Errorf("home dir: %w", err)
+18|     }
+19|     switch runtime.GOOS {
+20|     case "darwin":
+21|         return filepath.Join(home, "Library", "Application Support", "Cursor", "User"), nil
+22:     case "linux":
+23:         return filepath.Join(home, ".config", "Cursor", "User"), nil
+24:     case "windows":
+25:         return filepath.Join(home, "AppData", "Roaming", "Cursor", "User"), nil
+26|     default:
+27|         return "", fmt.Errorf("unsupported GOOS %q", runtime.GOOS)
+28|     }
+29| }
 ```
 
 | Line(s) | Explanation |
@@ -348,10 +349,10 @@ Files: `internal/cursor/types.go` and `internal/cursor/dashboard_types.go`. Thes
 
 ```go
 // internal/cursor/types.go
- 5| type ComposerMeta struct {
- 6|     ID            string         `json:"id"`
- 7|     WorkspaceID   string         `json:"workspace_id,omitempty"`
- 8|     WorkspacePath string         `json:"workspace_path,omitempty"`
+ 6| type ComposerMeta struct {
+ 7|     ID            string         `json:"id"`
+ 8|     WorkspaceID   string         `json:"workspace_id,omitempty"`
+ 9|     WorkspacePath string         `json:"workspace_path,omitempty"`
 10|     Title         string         `json:"title,omitempty"`
 11|     CreatedAt     time.Time      `json:"created_at,omitempty"`
 12|     UpdatedAt     time.Time      `json:"updated_at,omitempty"`
@@ -386,19 +387,19 @@ And in `dashboard_types.go`:
 `internal/cursor/model.go` adds two tiny helpers you'll see everywhere model handling happens:
 
 ```go
-25| func IsAutoModel(model string) bool {
-26|     switch strings.ToLower(strings.TrimSpace(model)) {
-27|     case "", "default", "auto", "automatic":
-28|         return true
-29|     }
-30|     return false
-31| }
+27| func IsAutoModel(model string) bool {
+28|     switch strings.ToLower(strings.TrimSpace(model)) {
+29|     case "", "default", "auto", "automatic":
+30|         return true
+31|     }
+32|     return false
+33| }
 ```
 
 | Line(s) | Explanation |
 |---------|-------------|
-| 26 | Normalise first: lower-case and trim spaces so `"Default"` and `" default "` both match. |
-| 27–28 | Cursor reports the Auto picker as `default`/`auto`/empty. We treat all of these as "the user did **not** manually choose a model". |
+| 28 | Normalise first: lower-case and trim spaces so `"Default"` and `" default "` both match. |
+| 29–30 | Cursor reports the Auto picker as `default`/`auto`/empty. We treat all of these as "the user did **not** manually choose a model". |
 | `NormalizeModel` | (just below) returns `"Auto"` for those, or the raw model id otherwise — used for display. |
 
 ---
@@ -501,45 +502,45 @@ File: `internal/cursor/transcripts/transcripts.go`. This turns Cursor's agent lo
 ### 9.1 Walking the directory
 
 ```go
-22| func (c *Collector) Collect(ctx context.Context) ([]cursor.ToolEvent, int, error) {
-23|     if c.ProjectsDir == "" {
-24|         return nil, 0, nil
-25|     }
-26|     if _, err := os.Stat(c.ProjectsDir); os.IsNotExist(err) {
-27|         return nil, 0, nil
-28|     } else if err != nil {
-29|         return nil, 0, err
-30|     }
-31|
-32|     var out []cursor.ToolEvent
-33|     files := 0
-34|     err := filepath.WalkDir(c.ProjectsDir, func(path string, d os.DirEntry, walkErr error) error {
-35|         if walkErr != nil {
-36|             return walkErr
-37|         }
-38|         if ctx.Err() != nil {
-39|             return ctx.Err()
-40|         }
-41|         if d.IsDir() {
-42|             return nil
-43|         }
-44|         name := d.Name()
-45|         if !strings.HasSuffix(name, ".jsonl") && !strings.HasSuffix(name, ".txt") {
-46|             return nil
-47|         }
-48|         if !strings.Contains(path, string(filepath.Separator)+"agent-transcripts"+string(filepath.Separator)) {
-49|             return nil
-50|         }
-51|         files++
-52|         events, err := parseFile(path)
-53|         if err != nil {
-54|             return nil // skip unreadable files
-55|         }
-56|         out = append(out, events...)
-57|         return nil
-58|     })
-59|     return out, files, err
-60| }
+23| func (c *Collector) Collect(ctx context.Context) ([]cursor.ToolEvent, int, error) {
+24|     if c.ProjectsDir == "" {
+25|         return nil, 0, nil
+26|     }
+27|     if _, err := os.Stat(c.ProjectsDir); os.IsNotExist(err) {
+28|         return nil, 0, nil
+29|     } else if err != nil {
+30|         return nil, 0, err
+31|     }
+32|
+33|     var out []cursor.ToolEvent
+34|     files := 0
+35|     err := filepath.WalkDir(c.ProjectsDir, func(path string, d os.DirEntry, walkErr error) error {
+36|         if walkErr != nil {
+37|             return walkErr
+38|         }
+39|         if ctx.Err() != nil {
+40|             return ctx.Err()
+41|         }
+42|         if d.IsDir() {
+43|             return nil
+44|         }
+45|         name := d.Name()
+46:         if !strings.HasSuffix(name, ".jsonl") && !strings.HasSuffix(name, ".txt") {
+47:             return nil
+48:         }
+49:         if !strings.Contains(path, string(filepath.Separator)+"agent-transcripts"+string(filepath.Separator)) {
+50:             return nil
+51:         }
+52|         files++
+53|         events, err := parseFile(path)
+54|         if err != nil {
+55|             return nil // skip unreadable files
+56|         }
+57|         out = append(out, events...)
+58|         return nil
+59|     })
+60|     return out, files, err
+61| }
 ```
 
 | Line(s) | Explanation |
@@ -653,18 +654,18 @@ File: `internal/store/db.go`. This is our **own** SQLite database (separate from
 ### 10.1 Opening and the `DB` wrapper
 
 ```go
-20| type DB struct {
-21|     sql *sql.DB
-22| }
-23|
-25| func OpenDefault() (*DB, error) {
-26|     dir, err := paths.StatDataDir()
-27|     if err != nil {
-28|         return nil, err
-29|     }
-30|     return Open(filepath.Join(dir, "stats.db"))
-31| }
-32|
+21| type DB struct {
+22|     sql *sql.DB
+23| }
+24|
+26| func OpenDefault() (*DB, error) {
+27|     dir, err := paths.StatDataDir()
+28|     if err != nil {
+29|         return nil, err
+30|     }
+31|     return Open(filepath.Join(dir, "stats.db"))
+32| }
+33|
 35| func Open(path string) (*DB, error) {
 36|     if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 37|         return nil, err
@@ -685,11 +686,11 @@ File: `internal/store/db.go`. This is our **own** SQLite database (separate from
 
 | Line(s) | Explanation |
 |---------|-------------|
-| 20–22 | We **wrap** the standard `*sql.DB` in our own `DB` type. The field is lowercase `sql`, so it's private — outside packages must use our methods, not raw SQL. This is encapsulation. |
-| 25–31 | `OpenDefault` resolves `~/.cursor-stat/` then opens `stats.db` inside it. |
+| 21–23 | We **wrap** the standard `*sql.DB` in our own `DB` type. The field is lowercase `sql`, so it's private — outside packages must use our methods, not raw SQL. This is encapsulation. |
+| 26–32 | `OpenDefault` resolves `~/.cursor-stat/` then opens `stats.db` inside it. |
 | 36 | Make sure the parent directory exists. |
 | 39 | The DSN sets two pragmas: `busy_timeout(5000)` waits up to 5s if the DB is briefly locked, and `journal_mode(WAL)` gives better concurrency. |
-| 44–48 | Build the wrapper and run `Migrate()`. If migration fails we close the handle and report the error (don't return a half-initialised DB). |
+| 44–49 | Build the wrapper and run `Migrate()`. If migration fails we close the handle and report the error (don't return a half-initialised DB). |
 
 ### 10.2 Migrations: create tables if missing
 
@@ -769,13 +770,13 @@ Other methods you'll meet: `UpsertComposer`, `RebuildDailyRollups` (recomputes t
 File: `internal/ingest/ingest.go`. This orchestrates the collectors and writes to the cache. It's the "meal prep" step.
 
 ```go
-21| func Run(ctx context.Context, db *store.DB) (cursor.IngestResult, error) {
-22|     result := cursor.IngestResult{CompletedAt: time.Now().UTC()}
-23|
-24|     if err := db.RepairInvalidToolTimestamps(); err != nil {
-25|         return result, err
-26|     }
-27|     // …resolve workspace map + global DB path…
+22| func Run(ctx context.Context, db *store.DB) (cursor.IngestResult, error) {
+23|     result := cursor.IngestResult{CompletedAt: time.Now().UTC()}
+24|
+25|     if err := db.RepairInvalidToolTimestamps(); err != nil {
+26|         return result, err
+27|     }
+28|     // …resolve workspace map + global DB path…
 43|     if need, err := db.NeedsIngest(sourceGlobalDB, globalPath); err == nil && need {
 44|         composers, err := globaldb.ReadComposers(globalPath, wsMap)
 45|         if err != nil {
@@ -791,13 +792,13 @@ File: `internal/ingest/ingest.go`. This orchestrates the collectors and writes t
 62|         }
             // …read bubble model choices, insert each…
             // …MarkIngested(sourceGlobalDB, globalPath); SourcesUpdated++…
-67|     }
+79|     }
 ```
 
 | Line(s) | Explanation |
 |---------|-------------|
-| 22 | Build a `result` struct we fill in as we go (counts of what we did). |
-| 24–26 | Cheap repair of legacy bad rows before anything else. |
+| 23 | Build a `result` struct we fill in as we go (counts of what we did). |
+| 25–27 | Cheap repair of legacy bad rows before anything else. |
 | 43 | `NeedsIngest` compares the global DB's size+mtime to what we stored last time. If unchanged, the whole block is **skipped** — that's the idempotency optimisation. |
 | 44–47 | `globaldb.ReadComposers` opens a read-only copy (Lesson 4) and returns sessions. Errors are wrapped with the collector name. |
 | 48–52 | Loop sessions; `UpsertComposer` inserts-or-updates each; count it. |
@@ -807,45 +808,80 @@ File: `internal/ingest/ingest.go`. This orchestrates the collectors and writes t
 ```go
 85|     projectsDir, err := paths.ProjectsDir()
 ...
-89|     fp, fpMtime, err := store.DirFingerprint(projectsDir)
+90|     fp, fpMtime, err := store.DirFingerprint(projectsDir)
 ...
-92|     if need, err := db.NeedsIngestFingerprint(sourceTranscripts, fp, fpMtime); err == nil && need {
-93|         tc := &transcripts.Collector{ProjectsDir: projectsDir}
-94|         events, _, err := tc.Collect(ctx)
-95|         if err != nil {
-96|             return result, fmt.Errorf("transcripts: %w", err)
-97|         }
-98|         if err := db.ReplaceToolEventsBySource("transcript", events); err != nil {
-99|             return result, err
-100|        }
-101|        result.EventsInserted += len(events)
-102|        // …MarkIngestedFingerprint…
-103|    }
-104|
-105|    if err := db.RebuildDailyRollups(); err != nil {
-106|        return result, err
-107|    }
-108|    // …SetMeta("last_ingest_at", …)…
+94|     if need, err := db.NeedsIngestFingerprint(sourceTranscripts, fp, fpMtime); err == nil && need {
+95|         tc := &transcripts.Collector{ProjectsDir: projectsDir}
+96|         events, _, err := tc.Collect(ctx)
+97|         if err != nil {
+98|             return result, fmt.Errorf("transcripts: %w", err)
+99|         }
+100|        if err := db.ReplaceToolEventsBySource("transcript", events); err != nil {
+101|            return result, err
+102|        }
+103|        result.EventsInserted += len(events)
+104|        // …MarkIngestedFingerprint…
+108|    }
+109|
+110|    if err := db.RebuildDailyRollups(); err != nil {
+111|        return result, err
+112:    }
+113:    // …SetMeta("last_ingest_at", …)…
 ```
 
 | Line(s) | Explanation |
 |---------|-------------|
-| 89–92 | Use the **directory fingerprint** to decide whether transcripts changed. Cheaper and more accurate than checking one file. |
-| 93–97 | Run the transcripts collector (Lesson 5). |
-| 98 | `ReplaceToolEventsBySource("transcript", …)` deletes old transcript tool rows and inserts the new set **inside one transaction**. This is critical: the TUI, refreshing every 2s, never sees an empty half-imported table. (Read `ReplaceToolEventsBySource` in `db.go` — it uses `db.sql.Begin()`, a prepared statement in a loop, and `tx.Commit()`.) |
-| 105–107 | Recompute the daily rollups from the now-updated `events`/`composers`. |
+| 90–94 | Use the **directory fingerprint** to decide whether transcripts changed. Cheaper and more accurate than checking one file. |
+| 95–99 | Run the transcripts collector (Lesson 5). |
+| 100 | `ReplaceToolEventsBySource("transcript", …)` deletes old transcript tool rows and inserts the new set **inside one transaction**. This is critical: the TUI, refreshing every 2s, never sees an empty half-imported table. (Read `ReplaceToolEventsBySource` in `db.go` — it uses `db.sql.Begin()`, a prepared statement in a loop, and `tx.Commit()`.) |
+| 110–112 | Recompute the daily rollups from the now-updated `events`/`composers`. |
 
 > **Two big ideas in ingest:** (1) **skip unchanged sources** for speed; (2) **swap data atomically** so readers never see a torn state.
 
 ---
 
-## 12. Lesson 8 — hooks and model tracking
+## 12. Lesson 8 — the `doctor` command
+
+File: `internal/doctor/doctor.go`. This package provides diagnostic health checks. It's a great example of a simple, extensible feature that uses several other packages.
+
+```go
+22| func Run() ([]Check, error) {
+23|     var out []Check
+24|
+25|     user, err := paths.CursorUserData()
+...
+63|     db, err := store.OpenDefault()
+...
+71|         // New: check stats.db size
+72|         var dbSize int64
+73|         if p, err := paths.StatDataDir(); err == nil {
+74|             if st, err := os.Stat(filepath.Join(p, "stats.db")); err == nil {
+75|                 dbSize = st.Size()
+76|             }
+77|         }
+...
+115| func formatSize(b int64) string {
+```
+
+| Line(s) | Explanation |
+|---------|-------------|
+| 22 | `Run()` returns a slice of `Check` structs, which `main.go` prints to the console. |
+| 25 | It uses the `paths` package to find where Cursor data *should* be. |
+| 63 | It opens our local `stats.db` to report how many sessions are cached. |
+| 71–77 | It checks the physical file size of our cache on disk. This was originally an exercise but is now part of the tool! |
+| 115 | `formatSize` is a classic helper that turns raw bytes into human-readable strings like "1.2 MB". |
+
+> **Lesson:** Diagnostics should be "read-only" and never crash. If a check fails (e.g., `stats.db` is missing), we record the error in the `Check` result instead of returning a fatal error.
+
+---
+
+## 13. Lesson 9 — hooks and model tracking
 
 Files: `internal/hooks/parse.go`, `internal/hooks/server.go`, plus `hooks/cursor-stat-hook.js`.
 
 **Flow:** Cursor runs the small Node script on each event → the script POSTs the event JSON to `http://127.0.0.1:23556/event` → our Go server parses it → updates the ring (for live view) and, for prompt submissions, writes a `model_choice` row.
 
-### 12.1 Parsing the payload
+### 13.1 Parsing the payload
 
 ```go
 // internal/hooks/parse.go
@@ -883,7 +919,7 @@ Files: `internal/hooks/parse.go`, `internal/hooks/server.go`, plus `hooks/cursor
 | 37–40 | If the payload carries a `model`, record it and compute `Manual` using `IsAutoModel` (Lesson 3). |
 | 42–44 | Only `beforeSubmitPrompt` with a real model becomes a persisted **model choice**. Everything else returns `nil` for the second value. Returning a **pointer** (`*ModelChoiceEvent`) lets us express "there may or may not be one". |
 
-### 12.2 The HTTP server
+### 13.2 The HTTP server
 
 ```go
 // internal/hooks/server.go (handleEvent)
@@ -928,11 +964,11 @@ The server is created in `main.go` (`hooks.NewServer(ring, db, port)`) and start
 
 ---
 
-## 13. Lesson 9 — the live ring buffer and watcher
+## 14. Lesson 10 — the live ring buffer and watcher
 
 Files: `internal/live/ring.go`, `internal/live/watcher.go`, `internal/live/live.go`.
 
-### 13.1 A thread-safe ring buffer
+### 14.1 A thread-safe ring buffer
 
 ```go
 // internal/live/ring.go
@@ -963,7 +999,7 @@ Files: `internal/live/ring.go`, `internal/live/watcher.go`, `internal/live/live.
 
 `List(n)`, `LatestAny`, `LatestTool`, and `LatestModel` use `RLock()` (a **read** lock) — many readers can hold it at once, which is fine because they don't mutate.
 
-### 13.2 The filesystem watcher
+### 14.2 The filesystem watcher
 
 `watcher.go` uses `fsnotify` to watch Cursor's `globalStorage` dir and every `agent-transcripts` folder. The interesting part is **debouncing**:
 
@@ -992,7 +1028,7 @@ Files: `internal/live/ring.go`, `internal/live/watcher.go`, `internal/live/live.
 
 ---
 
-## 14. Lesson 10 — `aggregate.Dashboard`
+## 15. Lesson 11 — `aggregate.Dashboard`
 
 File: `internal/aggregate/dashboard.go`. This is the **merge point**: it combines the live ring and the cache into one `Dashboard` struct the TUI renders.
 
@@ -1058,11 +1094,11 @@ The helper `toolsFromRing` counts tool events currently in the ring; `mergeToolB
 
 ---
 
-## 15. Lesson 11 — the Bubble Tea TUI
+## 16. Lesson 12 — the Bubble Tea TUI
 
 File: `internal/tui/model.go`. Bubble Tea uses the **Elm architecture**: one immutable `Model`, an `Update` function that returns a *new* model for each message, and a `View` that renders the model to a string. You never draw to the screen yourself.
 
-### 15.1 Messages and the model struct
+### 16.1 Messages and the model struct
 
 ```go
 19| type tickMsg time.Time
@@ -1100,7 +1136,7 @@ File: `internal/tui/model.go`. Bubble Tea uses the **Elm architecture**: one imm
 | 20–23, 24–27 | `dataMsg`/`errMsg` carry a `gen` (generation number). More on this below — it prevents stale updates. |
 | 31–45 | **All UI state in one struct.** `tab` is the current tab; `data` is the last dashboard; `ingesting` freezes refresh; `loadGen` is the generation counter. |
 
-### 15.2 `Init`, commands, and `tea.Cmd`
+### 16.2 `Init`, commands, and `tea.Cmd`
 
 ```go
 65| func (m model) Init() tea.Cmd {
@@ -1127,7 +1163,7 @@ File: `internal/tui/model.go`. Bubble Tea uses the **Elm architecture**: one imm
 | 70–72 | `tea.Tick` sends a `tickMsg` after duration `d`. We re-arm it every tick to get a repeating clock. |
 | 74–82 | A `tea.Cmd` is `func() tea.Msg` — Bubble Tea runs it **in a goroutine** so slow work (reading the DB) doesn't freeze the UI. When it finishes it returns a message that arrives back in `Update`. Each load is tagged with `gen`. |
 
-### 15.3 `Update`: the heart of the loop
+### 16.3 `Update`: the heart of the loop
 
 ```go
 96| func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1202,7 +1238,7 @@ File: `internal/tui/model.go`. Bubble Tea uses the **Elm architecture**: one imm
 
 > **Two patterns worth stealing:** (1) run slow work in a `tea.Cmd` goroutine and feed results back as messages; (2) tag async work with a generation number so late results can be ignored.
 
-### 15.4 `View`: pure rendering
+### 16.4 `View`: pure rendering
 
 ```go
 151| func (m model) View() string {
@@ -1238,7 +1274,7 @@ The `render*` helpers (e.g. `renderOverview`, `renderTools`) use **Lip Gloss** s
 
 ---
 
-## 16. Concurrency model in one page
+## 17. Concurrency model in one page
 
 Who runs where, while the TUI is open:
 
@@ -1260,7 +1296,7 @@ Safety rules the code follows:
 
 ---
 
-## 17. Testing patterns
+## 18. Testing patterns
 
 Run them:
 
@@ -1270,7 +1306,7 @@ go test ./internal/cursor -v  # one package, verbose
 go test -run TestIsAutoModel ./internal/cursor
 ```
 
-### 17.1 A table test, explained
+### 18.1 A table test, explained
 
 ```go
 // internal/cursor/model_test.go
@@ -1293,7 +1329,7 @@ go test -run TestIsAutoModel ./internal/cursor
 | 6–11 | A slice of inputs that should **all** be "auto"; loop and assert. `t.Fatalf` reports a failure and stops this test. `%q` quotes the value so empty/space inputs are visible. |
 | 12–14 | The negative case: a real model must not be auto. |
 
-### 17.2 Tests never touch your real data
+### 18.2 Tests never touch your real data
 
 ```go
 // internal/ingest/ingest_test.go (excerpt)
@@ -1311,7 +1347,7 @@ Fixtures (tiny SQLite DBs, JSONL snippets) are created inside the `_test.go` fil
 
 ---
 
-## 18. Glossary
+## 19. Glossary
 
 | Term | Meaning |
 |------|---------|
@@ -1331,14 +1367,14 @@ Fixtures (tiny SQLite DBs, JSONL snippets) are created inside the `_test.go` fil
 
 ---
 
-## 19. Exercises
+## 20. Exercises
 
 Work top to bottom; each builds confidence.
 
 1. **Read-only tour.** Run `go run ./cmd/cursor-stat --once | less` and find where each JSON field is set in the code. Trace `tools` back to `transcripts.Breakdown`.
-2. **Add a doctor check.** In `internal/doctor/doctor.go`, add a check that reports the size of `stats.db`. (Hint: `os.Stat` + `paths.StatDataDir`.)
+2. **Improve the doctor.** In `internal/doctor/doctor.go`, add a check that warns if `stats.db` is larger than 50MB. (Hint: check `dbSize` in `doctor.go` and add a new `Check` with `Status: "WARN"` if it exceeds the limit.)
 3. **New CSV column.** In `internal/export/export.go`, add a `manual_model_prompts` column. You'll need a query in `db.go` and a header change. Add a test.
-4. **New Overview line.** Show "last ingest age" on Tab 1. Touch `db.go` (you already have `LastIngestTime`), `dashboard.go`, and a `render*` in `tui/model.go`.
+4. **Sessions filter.** Add a 'Workspace' filter to the Sessions tab (Tab 2). This requires adding a `filter` string to the `model` struct in `tui/model.go` and updating `renderSessions` to skip rows that don't match.
 5. **New hook field.** Capture `cwd` from the hook payload in `parse.go` and show it in the live events list.
 
 For each: write the code, run `gofmt -l .` (should print nothing), `go vet ./...`, and `go test ./...`.

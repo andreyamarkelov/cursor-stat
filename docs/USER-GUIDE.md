@@ -220,12 +220,13 @@ Bar chart of how often each agent **tool** was used (`Read`, `Shell`, `Grep`, `W
 
 ### Tab 4 — Storage
 
-Disk usage and health of Cursor data locations (not your cache size).
+Disk usage and health of Cursor data locations and your cache.
 
 | Field | Meaning |
 |-------|---------|
 | **global state.vscdb** | Size of Cursor’s main SQLite DB + `readable` / `missing` |
 | **projects dir** | Total size under `~/.cursor/projects` + `exists` / `missing` |
+| **cache (stats.db)** | Size of our local cache + `readable` / `missing` |
 | **workspaces** | Number of workspace folders Cursor knows about |
 | **transcript files** | Count of `agent-transcripts` JSONL/txt files found |
 | **last ingest** | When you last ran ingest successfully (RFC3339 timestamp) |

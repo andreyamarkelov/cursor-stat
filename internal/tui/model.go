@@ -233,6 +233,9 @@ func renderOverview(m model) string {
 	}
 
 	b.WriteString("\n" + dimStyle.Render(" TODAY (from cache — press i after working)\n"))
+	if !m.data.LastIngestAt.IsZero() {
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" (last ingest: %s)\n", relTime(m.data.LastIngestAt))))
+	}
 	b.WriteString(fmt.Sprintf(" Sessions: %-6d              %s\n", today.SessionsStarted, sparkline(m.data.History, func(r cursor.DailyRollup) float64 { return float64(r.AssistantMsgs) })))
 	b.WriteString(fmt.Sprintf(" Messages: %-6d              %s\n", today.Messages, sparkline(m.data.History, func(r cursor.DailyRollup) float64 { return float64(r.ToolCalls) })))
 	b.WriteString(fmt.Sprintf(" Tool calls: %-6d\n", today.ToolCalls))
@@ -386,6 +389,9 @@ func renderStorage(m model) string {
 	}
 	if s.ProjectsDir != nil {
 		b.WriteString(fmt.Sprintf(" projects dir: %s (%s)\n", formatBytes(s.ProjectsDir.SizeBytes), okExist(s.ProjectsDir.Exists)))
+	}
+	if s.StatsDB != nil {
+		b.WriteString(fmt.Sprintf(" cache (stats.db): %s (%s)\n", formatBytes(s.StatsDB.SizeBytes), okFail(s.StatsDB.Readable)))
 	}
 	b.WriteString(fmt.Sprintf(" workspaces: %d  transcript files: %d\n", s.WorkspaceCount, s.TranscriptFiles))
 	if !m.data.LastIngestAt.IsZero() {
